@@ -243,6 +243,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url === '/api/maintenance/retention' && req.method === 'POST') {
+    if (IS_PRODUCTION && !API_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API authentication is not configured' }));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="TagEngine API"', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Bearer token required' }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      if (typeof body.retentionDays !== 'number' || !Number.isInteger(body.retentionDays) ||
+          (body.keepLatestPerVolume !== undefined && typeof body.keepLatestPerVolume !== 'number') ||
+          (body.dryRun !== undefined && typeof body.dryRun !== 'boolean')) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ error: 'retentionDays is required; keepLatestPerVolume must be an integer and dryRun must be boolean' }));
+        return;
+      }
+      const result = snapshotStore.applyRetention({
+        retentionDays: body.retentionDays,
+        keepLatestPerVolume: body.keepLatestPerVolume as number | undefined,
+        dryRun: body.dryRun as boolean | undefined,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ retention: result, storageUsage: snapshotStore.storageUsage() }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Retention operation failed';
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
   if (req.method === 'POST' && url === '/api/analyze') {
     if (IS_PRODUCTION && !API_TOKEN) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
