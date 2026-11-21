@@ -80,3 +80,29 @@ using one shared time anchor so recency dimensions are comparable.
 Comparison metadata is stored in SQLite and alert records are stored as JSONL files
 inside `ENTEC_SNAPSHOT_DIR`. Back up the complete directory. This release does not
 yet provide automatic retention or deletion; disk monitoring remains necessary.
+
+
+## Retention and storage lifecycle
+
+The authenticated `POST /api/maintenance/retention` endpoint supports a safe dry-run
+before any deletion. Example request:
+
+```json
+{ "retentionDays": 90, "keepLatestPerVolume": 3 }
+```
+
+The default is `dryRun: true`; the response reports the cutoff, candidate counts,
+estimated reclaimable bytes, and current tracked storage usage without deleting data.
+After reviewing the report, explicitly set `"dryRun": false` to execute the cleanup.
+
+Retention removes old comparison records and their alert JSONL files first, then
+eligible old snapshots and their source/vector files. It retains the configured number
+of latest snapshots per volume (including snapshots newer than the cutoff) and protects any snapshot still referenced by
+a comparison that remains retained. Values are bounded: retention is 1–3,650 days and
+keepLatestPerVolume is 0–1,000. The endpoint is bearer-authenticated and returns
+`Cache-Control: no-store`.
+
+This is an operator-triggered maintenance operation, not a background scheduler.
+Run dry-runs regularly, execute only after reviewing results, and keep independent
+backups. Storage usage reports tracked snapshot and comparison artifacts, not SQLite
+database/WAL overhead or unrelated files in the directory.
