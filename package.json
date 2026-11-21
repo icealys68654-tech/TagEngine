@@ -8,11 +8,11 @@
     "url": "https://github.com/icealys68654-tech/Entec.git"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --outDir dist server.ts cli.ts",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
-    "cli": "ts-node src/cli.ts",
-    "test": "node --test dist/**/*.test.js"
+    "dev": "ts-node server.ts",
+    "cli": "ts-node cli.ts",
+    "test": "node --test"
   },
   "keywords": [
     "entec",

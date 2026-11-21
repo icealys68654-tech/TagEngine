@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
+import { timingSafeEqual } from 'crypto';
 import {
   parseDirSnapshotToVectors,
   detectSnapshotAnchorEpoch,
@@ -16,6 +17,8 @@ import {
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.resolve(__dirname, '../public');
+const API_TOKEN = process.env.ENTEC_API_TOKEN || '';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -25,23 +28,56 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+function isLoopback(address: string | undefined): boolean {
+  if (!address) return false;
+  return address === '::1' || address === '127.0.0.1' ||
+    address.startsWith('::ffff:127.');
+}
+
+function isAuthorized(req: http.IncomingMessage): boolean {
+  if (!API_TOKEN) {
+    // Local-only convenience for development. Production fails closed below.
+    return !IS_PRODUCTION && isLoopback(req.socket.remoteAddress);
+  }
+
+  const authorization = req.headers.authorization || '';
+  const match = /^Bearer (.+)$/i.exec(authorization);
+  if (!match) return false;
+
+  const supplied = Buffer.from(match[1], 'utf8');
+  const expected = Buffer.from(API_TOKEN, 'utf8');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let raw = '';
+    let settled = false;
     req.on('data', (chunk) => {
+      if (settled) return;
       raw += chunk;
-      if (raw.length > 50 * 1024 * 1024) {
+      if (Buffer.byteLength(raw, 'utf8') > 50 * 1024 * 1024) {
+        settled = true;
         reject(new Error('Payload exceeds 50MB limit'));
+        req.destroy();
       }
     });
     req.on('end', () => {
+      if (settled) return;
       try {
-        resolve(raw ? JSON.parse(raw) : {});
+        const parsed: unknown = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          reject(new Error('JSON payload must be an object'));
+          return;
+        }
+        resolve(parsed as Record<string, unknown>);
       } catch {
         reject(new Error('Invalid JSON payload'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (error) => {
+      if (!settled) reject(error);
+    });
   });
 }
 
@@ -60,22 +96,35 @@ async function readJsonlRecords<T>(filePath: string, limit: number = 1000): Prom
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = req.url || '/';
+  const url = (req.url || '/').split('?')[0];
 
   if (req.method === 'GET' && url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(
-      JSON.stringify({
-        status: 'ONLINE',
-        service: 'Entec OS Snapshot IDS Vector Engine',
-        repository: 'https://github.com/icealys68654-tech/Entec.git',
-      })
-    );
+    res.end(JSON.stringify({
+      status: 'ONLINE',
+      service: 'Entec OS Snapshot IDS Vector Engine',
+      repository: 'https://github.com/icealys68654-tech/Entec.git',
+    }));
     return;
   }
 
   if (req.method === 'POST' && url === '/api/analyze') {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entec-web-'));
+    if (IS_PRODUCTION && !API_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API authentication is not configured' }));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      res.writeHead(401, {
+        'Content-Type': 'application/json',
+        'WWW-Authenticate': 'Bearer realm="TagEngine API"',
+        'Cache-Control': 'no-store',
+      });
+      res.end(JSON.stringify({ error: 'Bearer token required' }));
+      return;
+    }
+
+    let tmpDir: string | undefined;
     try {
       const body = await readJsonBody(req);
       const baselineText = typeof body.baselineText === 'string' ? body.baselineText : '';
@@ -87,13 +136,18 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'baselineText is required' }));
         return;
       }
+      if (!Number.isFinite(minSeverity) || minSeverity < 0 || minSeverity > 10) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'minSeverity must be between 0 and 10' }));
+        return;
+      }
 
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'entec-web-'));
       const t0Txt = path.join(tmpDir, 't0.txt');
       const t0Jsonl = path.join(tmpDir, 't0.jsonl');
       fs.writeFileSync(t0Txt, baselineText, 'utf8');
 
       if (!targetText.trim()) {
-        // Single-snapshot vector parse & triage mode
         const parseMeta = await parseDirSnapshotToVectors(t0Txt, t0Jsonl);
         const allVectors = await readJsonlRecords<SnapshotManifestVector>(t0Jsonl, 2000);
         const triaged = allVectors
@@ -106,18 +160,15 @@ const server = http.createServer(async (req, res) => {
           .sort((a, b) => b.severityScore - a.severityScore);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            mode: 'SINGLE_PARSE',
-            ...parseMeta,
-            recordsReturned: triaged.length,
-            records: triaged,
-          })
-        );
+        res.end(JSON.stringify({
+          mode: 'SINGLE_PARSE',
+          ...parseMeta,
+          recordsReturned: triaged.length,
+          records: triaged,
+        }));
         return;
       }
 
-      // Two-snapshot diff mode (shared anchor timestamp for deterministic drift)
       const t1Txt = path.join(tmpDir, 't1.txt');
       const t1Jsonl = path.join(tmpDir, 't1.jsonl');
       const diffJsonl = path.join(tmpDir, 'diff.jsonl');
@@ -138,28 +189,27 @@ const server = http.createServer(async (req, res) => {
       const alerts = await readJsonlRecords<SnapshotDiffAlert>(diffJsonl, 2000);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          mode: 'SNAPSHOT_DIFF',
-          sharedAnchorIso: new Date(sharedAnchor).toISOString(),
-          baseline: parseT0,
-          target: parseT1,
-          summary: diffSummary,
-          alerts,
-        })
-      );
+      res.end(JSON.stringify({
+        mode: 'SNAPSHOT_DIFF',
+        sharedAnchorIso: new Date(sharedAnchor).toISOString(),
+        baseline: parseT0,
+        target: parseT1,
+        summary: diffSummary,
+        alerts,
+      }));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Internal server error';
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: message }));
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: message }));
+      }
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     }
     return;
   }
 
-  // Static website production file server
-  const safePath = url === '/' ? 'index.html' : url.replace(/^\/+/, '').split('?')[0];
+  const safePath = url === '/' ? 'index.html' : url.replace(/^\/+/, '');
   const filePath = path.join(PUBLIC_DIR, safePath);
 
   if (filePath.startsWith(PUBLIC_DIR) && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
@@ -172,6 +222,13 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('404 Not Found');
 });
+
+if (IS_PRODUCTION && !API_TOKEN) {
+  console.error('[ENTEC-IDS] ENTEC_API_TOKEN is required in production; /api/analyze will return 503.');
+}
+if (!API_TOKEN && !IS_PRODUCTION) {
+  console.warn('[ENTEC-IDS] No ENTEC_API_TOKEN set; /api/analyze is restricted to loopback clients.');
+}
 
 server.listen(PORT, () => {
   console.log(`[ENTEC-IDS] Server listening on http://localhost:${PORT}`);

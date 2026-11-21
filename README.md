@@ -13,3 +13,29 @@ Architecture: Central Next.js dashboard plus subsystems for storage, snapshots, 
 Security notes: IDS detects and alerts only; IPS actively blocks; SIEM correlates events. Findings require review.
 
 Principles: Modular design, access controls, full auditability, explainable detections, and API-driven expansion.
+
+
+## API authentication
+
+The `POST /api/analyze` endpoint is protected with a bearer token when
+`ENTEC_API_TOKEN` is configured. Set a high-entropy secret in the server
+environment and send it as `Authorization: Bearer <token>` from trusted
+server-to-server clients. Never place this token in `public/app.js`, HTML,
+or any browser-delivered code.
+
+Production mode (`NODE_ENV=production`) fails closed: if
+`ENTEC_API_TOKEN` is missing, analysis requests return HTTP 503. Requests
+without a valid token return HTTP 401. In non-production mode, omitting the
+token permits analysis only from loopback clients; remote clients still need
+a configured token. `GET /api/health` remains unauthenticated for liveness
+checks and does not expose configuration or secrets.
+
+Example environment:
+
+```sh
+NODE_ENV=production
+ENTEC_API_TOKEN=<generate-a-long-random-secret>
+```
+
+Use HTTPS or a private network between Entec and TagEngine. Rotate the token
+through the deployment secret manager, not source control.
