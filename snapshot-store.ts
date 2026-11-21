@@ -195,9 +195,9 @@ export class SnapshotStore {
       return count >= keepLatest;
     });
     const removedComparisonIds = new Set(comparisonRows.map(row => row.id));
-    const referenced = this.db.prepare('SELECT baseline_id AS baselineId, target_id AS targetId FROM snapshot_comparisons')
-      .all() as Array<{ baselineId: string; targetId: string }>;
-    const protectedIds = new Set(referenced.filter(row => !removedComparisonIds.has((row as any).id)).flatMap(row => [row.baselineId, row.targetId]));
+    const referenced = this.db.prepare('SELECT id, baseline_id AS baselineId, target_id AS targetId FROM snapshot_comparisons')
+      .all() as Array<{ id: string; baselineId: string; targetId: string }>;
+    const protectedIds = new Set(referenced.filter(row => !removedComparisonIds.has(row.id)).flatMap(row => [row.baselineId, row.targetId]));
     // Retain any snapshot still referenced by a comparison that is itself retained.
     const removableSnapshots = candidateSnapshots.filter(row => !protectedIds.has(row.id));
     const paths = [
