@@ -181,7 +181,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if ((url === '/api/snapshot-comparisons' && (req.method === 'GET' || req.method === 'POST')) ||
-      (req.method === 'GET' && /^\\/api\\/snapshot-comparisons\\/[0-9a-f-]{36}$/i.test(url))) {
+      (req.method === 'GET' && url.startsWith('/api/snapshot-comparisons/') && /^[0-9a-f-]{36}$/i.test(url.slice('/api/snapshot-comparisons/'.length)))) {
     if (IS_PRODUCTION && !API_TOKEN) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'API authentication is not configured' }));
