@@ -180,6 +180,69 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if ((url === '/api/snapshot-comparisons' && (req.method === 'GET' || req.method === 'POST')) ||
+      (req.method === 'GET' && /^\\/api\\/snapshot-comparisons\\/[0-9a-f-]{36}$/i.test(url))) {
+    if (IS_PRODUCTION && !API_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API authentication is not configured' }));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="TagEngine API"', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Bearer token required' }));
+      return;
+    }
+    try {
+      if (req.method === 'GET' && url === '/api/snapshot-comparisons') {
+        const query = new URL(req.url || '/', 'http://localhost').searchParams;
+        const volumeId = query.get('volumeId') || undefined;
+        const limit = Number(query.get('limit') || '100');
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'limit must be an integer from 1 to 500' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ comparisons: snapshotStore.listComparisons(volumeId, limit) }));
+        return;
+      }
+      if (req.method === 'GET') {
+        const id = url.split('/').pop()!;
+        const comparison = snapshotStore.getComparison(id);
+        if (!comparison) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Comparison not found' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ comparison }));
+        return;
+      }
+      const body = await readJsonBody(req);
+      if (typeof body.baselineId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.baselineId) ||
+          typeof body.targetId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.targetId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'baselineId and targetId must be UUIDs' }));
+        return;
+      }
+      const minSeverity = body.minSeverity === undefined ? 1 : body.minSeverity;
+      if (typeof minSeverity !== 'number' || !Number.isFinite(minSeverity) || minSeverity < 0 || minSeverity > 10) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'minSeverity must be between 0 and 10' }));
+        return;
+      }
+      const comparison = await snapshotStore.compare({ baselineId: body.baselineId, targetId: body.targetId, minSeverity });
+      res.writeHead(201, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ comparison }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Snapshot comparison failed';
+      const status = /not found/i.test(message) ? 404 : /same volume|different|severity|UUID/i.test(message) ? 400 : 500;
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
   if (req.method === 'POST' && url === '/api/analyze') {
     if (IS_PRODUCTION && !API_TOKEN) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
