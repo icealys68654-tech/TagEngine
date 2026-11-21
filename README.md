@@ -97,7 +97,7 @@ After reviewing the report, explicitly set `"dryRun": false` to execute the clea
 
 Retention removes old comparison records and their alert JSONL files first, then
 eligible old snapshots and their source/vector files. It retains the configured number
-of latest *expired* snapshots per volume and protects any snapshot still referenced by
+of latest snapshots per volume (including snapshots newer than the cutoff) and protects any snapshot still referenced by
 a comparison that remains retained. Values are bounded: retention is 1–3,650 days and
 keepLatestPerVolume is 0–1,000. The endpoint is bearer-authenticated and returns
 `Cache-Control: no-store`.
