@@ -59,3 +59,24 @@ Snapshot source and vector files remain on the TagEngine host. This initial
 storage layer has no automatic retention or deletion policy; configure disk
 monitoring and backups before production use. Use a persistent volume for
 `ENTEC_SNAPSHOT_DIR`; ephemeral container filesystems will lose stored data.
+
+
+## Historical snapshot comparisons
+
+The authenticated comparison API compares two snapshots already stored by TagEngine.
+It resolves snapshot IDs internally (clients cannot supply filesystem paths), requires
+both snapshots to belong to the same `volumeId`, and reparses both source snapshots
+using one shared time anchor so recency dimensions are comparable.
+
+- `POST /api/snapshot-comparisons` — JSON body:
+  `{ "baselineId": "<uuid>", "targetId": "<uuid>", "minSeverity": 1 }`.
+  Returns HTTP 201 with the persisted comparison summary and up to 2,000 highest-ranked
+  alerts. `minSeverity` is optional and ranges from 0 to 10.
+- `GET /api/snapshot-comparisons?volumeId=volume-a&limit=100` — list comparison
+  metadata and counts, optionally filtered by volume. Limit is 1–500.
+- `GET /api/snapshot-comparisons/:uuid` — retrieve a saved comparison and up to
+  2,000 alerts.
+
+Comparison metadata is stored in SQLite and alert records are stored as JSONL files
+inside `ENTEC_SNAPSHOT_DIR`. Back up the complete directory. This release does not
+yet provide automatic retention or deletion; disk monitoring remains necessary.
