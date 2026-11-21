@@ -1,0 +1,36 @@
+{
+  "name": "entec-ids-vector-engine",
+  "version": "1.0.0",
+  "description": "Entec Data-as-a-Service (DaaS) Intrusion Detection System OS Snapshot Vector Parse & Diff Engine",
+  "main": "dist/server.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/icealys68654-tech/Entec.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "cli": "ts-node src/cli.ts",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "keywords": [
+    "entec",
+    "daas",
+    "ids",
+    "intrusion-detection",
+    "os-snapshot",
+    "vector-parser",
+    "sqlite"
+  ],
+  "license": "GPL-3.0",
+  "dependencies": {
+    "better-sqlite3": "^11.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

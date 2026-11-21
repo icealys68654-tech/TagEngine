@@ -1,0 +1,24 @@
+ Volume in drive C is Windows-SSD
+ Volume Serial Number is A49B-18C2
+
+ Directory of C:\
+
+06/10/2009  04:42 PM                 0 autoexec.bat
+06/10/2009  04:42 PM                 0 config.sys
+07/06/2026  10:44 AM           208,433 evasive-docu-flow-crm.zip
+11/19/2026  11:15 PM                 0 ssd_snapshot.txt
+11/18/2026  02:10 PM    <DIR>          Users
+11/18/2026  02:11 PM    <DIR>          Windows
+               4 File(s)        208,433 bytes
+
+ Directory of C:\$Recycle.Bin\S-1-5-21-384920192-1001
+
+11/19/2026  09:12 PM         1,482,752 $I2R38PO.exe
+11/19/2026  09:14 PM    <DIR>          $RQ0CX8C
+               1 File(s)      1,482,752 bytes
+
+ Directory of C:\Windows\System32
+
+11/18/2026  01:05 AM           412,672 cmd.exe
+11/19/2026  10:58 PM    <JUNCTION>     spool_redirect [C:\Users\Public\spool]
+               2 File(s)        412,672 bytes

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ENTEC // OS Snapshot IDS Vector Parse Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="badge">DaaS // IDS</span>
+      <h1>ENTEC VECTOR PARSE ENGINE</h1>
+    </div>
+    <nav class="repo-link">
+      <a href="https://github.com/icealys68654-tech/Entec.git" target="_blank" rel="noopener">
+        GITHUB :: icealys68654-tech/Entec.git
+      </a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="panel control-panel">
+      <div class="panel-header">
+        <h2>01 // SNAPSHOT MANIFEST INPUTS (WINDOWS DIR /S)</h2>
+        <div class="actions">
+          <button id="loadSampleBtn" class="btn btn-secondary">LOAD SAMPLE MANIFEST</button>
+          <button id="runAnalyzeBtn" class="btn btn-primary">EXECUTE VECTOR PARSE</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="input-box">
+          <div class="input-label-row">
+            <label for="baselineInput">BASELINE SNAPSHOT (t0)</label>
+            <input type="file" id="baselineFile" accept=".txt,.log" />
+          </div>
+          <textarea id="baselineInput" placeholder="Paste Windows 'dir /s' output or upload .txt manifest..."></textarea>
+        </div>
+
+        <div class="input-box">
+          <div class="input-label-row">
+            <label for="targetInput">TARGET SNAPSHOT (t1 — OPTIONAL FOR DIFF)</label>
+            <input type="file" id="targetFile" accept=".txt,.log" />
+          </div>
+          <textarea id="targetInput" placeholder="Optional second snapshot for SQLite t0 vs t1 Euclidean/Cosine diff..."></textarea>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <label>
+          MIN SEVERITY THRESHOLD:
+          <input type="number" id="minSeverity" value="1.5" min="0" max="10" step="0.5" />
+        </label>
+        <button id="exportJsonlBtn" class="btn btn-secondary" disabled>EXPORT .JSONL</button>
+        <span id="statusText" class="status">READY</span>
+      </div>
+    </section>
+
+    <section class="metrics-bar" id="metricsBar">
+      <div class="metric-card">
+        <span class="metric-title">MODE</span>
+        <span class="metric-val" id="metricMode">—</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">RECORDS PARSED</span>
+        <span class="metric-val" id="metricCount">0</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">ALERTS EMITTED</span>
+        <span class="metric-val" id="metricAlerts">0</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">ANCHOR EPOCH</span>
+        <span class="metric-val" id="metricAnchor">—</span>
+      </div>
+    </section>
+
+    <section class="panel results-panel">
+      <div class="panel-header">
+        <h2>02 // 12-D SECURITY FEATURE VECTORS &amp; DRIFT TELEMETRY</h2>
+      </div>
+      <div class="table-wrap">
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th>SEVERITY</th>
+              <th>STATUS / TYPE</th>
+              <th>ARTIFACT PATH</th>
+              <th>12-D VECTOR</th>
+              <th>DRIFT / SIGNALS</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr>
+              <td colspan="5" class="empty-row">Awaiting snapshot manifest execution...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
