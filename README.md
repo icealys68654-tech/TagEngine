@@ -39,3 +39,23 @@ ENTEC_API_TOKEN=<generate-a-long-random-secret>
 
 Use HTTPS or a private network between Entec and TagEngine. Rotate the token
 through the deployment secret manager, not source control.
+
+
+## Persistent snapshot storage API
+
+Set `ENTEC_SNAPSHOT_DIR` to a durable writable directory (default:
+`./data/snapshots`). TagEngine stores snapshot source text, parsed JSONL
+vectors, and indexed metadata in SQLite. Back up this directory as part of
+the deployment's normal data-protection plan.
+
+All snapshot routes require the same bearer authentication as `/api/analyze`.
+
+- `POST /api/snapshots` — JSON body: `{ "snapshotText": "...", "volumeId": "volume-a", "label": "Baseline" }`. Returns HTTP 201 and snapshot metadata after parsing and persisting the snapshot.
+- `GET /api/snapshots?volumeId=volume-a&limit=100` — list metadata, optionally filtered by volume. Limit is 1–500.
+- `GET /api/snapshots/:uuid` — retrieve one snapshot's metadata.
+
+The API does not return local filesystem paths or raw snapshot contents.
+Snapshot source and vector files remain on the TagEngine host. This initial
+storage layer has no automatic retention or deletion policy; configure disk
+monitoring and backups before production use. Use a persistent volume for
+`ENTEC_SNAPSHOT_DIR`; ephemeral container filesystems will lose stored data.

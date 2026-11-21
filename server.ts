@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 import { timingSafeEqual } from 'crypto';
+import { SnapshotStore } from './snapshot-store';
 import {
   parseDirSnapshotToVectors,
   detectSnapshotAnchorEpoch,
@@ -19,6 +20,8 @@ const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.resolve(__dirname, '../public');
 const API_TOKEN = process.env.ENTEC_API_TOKEN || '';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const SNAPSHOT_DIR = path.resolve(process.env.ENTEC_SNAPSHOT_DIR || path.join(process.cwd(), 'data', 'snapshots'));
+const snapshotStore = new SnapshotStore(SNAPSHOT_DIR);
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -105,6 +108,75 @@ const server = http.createServer(async (req, res) => {
       service: 'Entec OS Snapshot IDS Vector Engine',
       repository: 'https://github.com/icealys68654-tech/Entec.git',
     }));
+    return;
+  }
+
+  if (url === '/api/snapshots' && (req.method === 'GET' || req.method === 'POST')) {
+    if (IS_PRODUCTION && !API_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API authentication is not configured' }));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="TagEngine API"', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Bearer token required' }));
+      return;
+    }
+    try {
+      if (req.method === 'GET') {
+        const query = new URL(req.url || '/', 'http://localhost').searchParams;
+        const volumeId = query.get('volumeId') || undefined;
+        const limitValue = Number(query.get('limit') || '100');
+        if (!Number.isInteger(limitValue) || limitValue < 1 || limitValue > 500) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'limit must be an integer from 1 to 500' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ snapshots: snapshotStore.list(volumeId, limitValue) }));
+        return;
+      }
+      const body = await readJsonBody(req);
+      if (typeof body.snapshotText !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'snapshotText is required' }));
+        return;
+      }
+      const snapshot = await snapshotStore.create({
+        snapshotText: body.snapshotText,
+        volumeId: typeof body.volumeId === 'string' ? body.volumeId : undefined,
+        label: typeof body.label === 'string' ? body.label : undefined,
+      });
+      res.writeHead(201, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ snapshot }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Snapshot storage failed';
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: message }));
+    }
+    return;
+  }
+
+  const snapshotMatch = req.method === 'GET' && url.match(/^\/api\/snapshots\/([0-9a-f-]{36})$/i);
+  if (snapshotMatch) {
+    if (IS_PRODUCTION && !API_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'API authentication is not configured' }));
+      return;
+    }
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="TagEngine API"', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Bearer token required' }));
+      return;
+    }
+    const snapshot = snapshotStore.get(snapshotMatch[1]);
+    if (!snapshot) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Snapshot not found' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ snapshot }));
     return;
   }
 
