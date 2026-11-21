@@ -160,5 +160,72 @@ export class SnapshotStore {
       summary: { added: row.added, modified: row.modified, deleted: row.deleted, alertsEmitted: row.alertsEmitted }, alerts };
   }
 
+
+  storageUsage(): { files: number; bytes: number } {
+    const rows = this.db.prepare('SELECT source_path AS sourcePath, vectors_path AS vectorsPath FROM snapshots').all() as Array<{ sourcePath: string; vectorsPath: string }>;
+    const comparisons = this.db.prepare('SELECT alerts_path AS alertsPath FROM snapshot_comparisons').all() as Array<{ alertsPath: string }>;
+    let files = 0;
+    let bytes = 0;
+    for (const file of [...rows.flatMap(row => [row.sourcePath, row.vectorsPath]), ...comparisons.map(row => row.alertsPath)]) {
+      if (!path.resolve(file).startsWith(this.storageDir + path.sep)) continue;
+      try { const stat = fs.statSync(file); if (stat.isFile()) { files++; bytes += stat.size; } } catch {}
+    }
+    return { files, bytes };
+  }
+
+  applyRetention(input: { retentionDays: number; keepLatestPerVolume?: number; dryRun?: boolean }): {
+    dryRun: boolean; cutoff: string; candidates: { snapshots: number; comparisons: number };
+    deleted: { snapshots: number; comparisons: number }; bytesReclaimable: number;
+    remainingUsage: { files: number; bytes: number };
+  } {
+    const { retentionDays } = input;
+    const keepLatest = input.keepLatestPerVolume ?? 2;
+    const dryRun = input.dryRun ?? true;
+    if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) throw new Error('retentionDays must be an integer from 1 to 3650');
+    if (!Number.isInteger(keepLatest) || keepLatest < 0 || keepLatest > 1000) throw new Error('keepLatestPerVolume must be an integer from 0 to 1000');
+    const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
+    const comparisonRows = this.db.prepare('SELECT id, alerts_path AS alertsPath FROM snapshot_comparisons WHERE created_at < ?').all(cutoff) as Array<{ id: string; alertsPath: string }>;
+    const oldSnapshots = this.db.prepare(`SELECT id, volume_id AS volumeId, created_at AS createdAt,
+      source_path AS sourcePath, vectors_path AS vectorsPath FROM snapshots WHERE created_at < ? ORDER BY volume_id, created_at DESC`)
+      .all(cutoff) as Array<{ id: string; volumeId: string; createdAt: string; sourcePath: string; vectorsPath: string }>;
+    const kept = new Map<string, number>();
+    const candidateSnapshots = oldSnapshots.filter(row => {
+      const count = kept.get(row.volumeId) || 0;
+      kept.set(row.volumeId, count + 1);
+      return count >= keepLatest;
+    });
+    const removedComparisonIds = new Set(comparisonRows.map(row => row.id));
+    const referenced = this.db.prepare('SELECT baseline_id AS baselineId, target_id AS targetId FROM snapshot_comparisons')
+      .all() as Array<{ baselineId: string; targetId: string }>;
+    const protectedIds = new Set(referenced.filter(row => !removedComparisonIds.has((row as any).id)).flatMap(row => [row.baselineId, row.targetId]));
+    // Retain any snapshot still referenced by a comparison that is itself retained.
+    const removableSnapshots = candidateSnapshots.filter(row => !protectedIds.has(row.id));
+    const paths = [
+      ...comparisonRows.map(row => row.alertsPath),
+      ...removableSnapshots.flatMap(row => [row.sourcePath, row.vectorsPath]),
+    ].filter(file => path.resolve(file).startsWith(this.storageDir + path.sep));
+    let bytesReclaimable = 0;
+    for (const file of paths) { try { const stat = fs.statSync(file); if (stat.isFile()) bytesReclaimable += stat.size; } catch {} }
+    let deletedComparisons = 0;
+    let deletedSnapshots = 0;
+    if (!dryRun) {
+      const remove = this.db.transaction(() => {
+        const deleteComparison = this.db.prepare('DELETE FROM snapshot_comparisons WHERE id = ?');
+        for (const row of comparisonRows) deletedComparisons += deleteComparison.run(row.id).changes;
+        const deleteSnapshot = this.db.prepare('DELETE FROM snapshots WHERE id = ?');
+        for (const row of removableSnapshots) deletedSnapshots += deleteSnapshot.run(row.id).changes;
+      });
+      remove();
+      for (const file of paths) { try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch { /* DB is authoritative; report usage for leftover files. */ } }
+    }
+    return {
+      dryRun, cutoff,
+      candidates: { snapshots: removableSnapshots.length, comparisons: comparisonRows.length },
+      deleted: { snapshots: deletedSnapshots, comparisons: deletedComparisons },
+      bytesReclaimable,
+      remainingUsage: this.storageUsage(),
+    };
+  }
+
   close(): void { this.db.close(); }
 }
