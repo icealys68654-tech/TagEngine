@@ -157,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const snapshotMatch = req.method === 'GET' && url.match(/^\\/api\\/snapshots\\/([0-9a-f-]{36})$/i);
+  const snapshotMatch = req.method === 'GET' && url.match(/^\/api\/snapshots\/([0-9a-f-]{36})$/i);
   if (snapshotMatch) {
     if (IS_PRODUCTION && !API_TOKEN) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
