@@ -185,15 +185,17 @@ export class SnapshotStore {
     if (!Number.isInteger(keepLatest) || keepLatest < 0 || keepLatest > 1000) throw new Error('keepLatestPerVolume must be an integer from 0 to 1000');
     const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
     const comparisonRows = this.db.prepare('SELECT id, alerts_path AS alertsPath FROM snapshot_comparisons WHERE created_at < ?').all(cutoff) as Array<{ id: string; alertsPath: string }>;
-    const oldSnapshots = this.db.prepare(`SELECT id, volume_id AS volumeId, created_at AS createdAt,
-      source_path AS sourcePath, vectors_path AS vectorsPath FROM snapshots WHERE created_at < ? ORDER BY volume_id, created_at DESC`)
-      .all(cutoff) as Array<{ id: string; volumeId: string; createdAt: string; sourcePath: string; vectorsPath: string }>;
+    const allSnapshots = this.db.prepare(`SELECT id, volume_id AS volumeId, created_at AS createdAt,
+      source_path AS sourcePath, vectors_path AS vectorsPath FROM snapshots ORDER BY volume_id, created_at DESC`)
+      .all() as Array<{ id: string; volumeId: string; createdAt: string; sourcePath: string; vectorsPath: string }>;
     const kept = new Map<string, number>();
-    const candidateSnapshots = oldSnapshots.filter(row => {
+    const keepIds = new Set<string>();
+    for (const row of allSnapshots) {
       const count = kept.get(row.volumeId) || 0;
+      if (count < keepLatest) keepIds.add(row.id);
       kept.set(row.volumeId, count + 1);
-      return count >= keepLatest;
-    });
+    }
+    const candidateSnapshots = allSnapshots.filter(row => row.createdAt < cutoff && !keepIds.has(row.id));
     const removedComparisonIds = new Set(comparisonRows.map(row => row.id));
     const referenced = this.db.prepare('SELECT id, baseline_id AS baselineId, target_id AS targetId FROM snapshot_comparisons')
       .all() as Array<{ id: string; baselineId: string; targetId: string }>;
